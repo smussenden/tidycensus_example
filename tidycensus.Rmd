@@ -1,0 +1,47 @@
+---
+title: "tidycensus_example"
+author: "Sean Mussenden"
+date: "10/1/2020"
+output: html_document
+---
+
+# Load packages
+```{r}
+# https://walker-data.com/tidycensus/
+library(tidycensus)
+library(tidyverse)
+# Get an api key
+# https://api.census.gov/data/key_signup.html
+
+# Define API Key
+census_api_key("549950d36c22ff16455fe196bbbd01d63cfbe6cf")
+
+```
+
+# Get available data
+```{r}
+# https://walker-data.com/tidycensus/reference/index.html
+
+acs_variables <- load_variables(2018, "acs5")
+
+```
+
+# Get census data
+
+```{r}
+# Get the total Black population for each ZCTA 
+# Get acs https://walker-data.com/tidycensus/reference/get_acs.html
+
+zcta_black_pop <- get_acs(geography = "zcta", variables = "B02001_003", summary_var = "B02001_001", geometry = FALSE) %>%
+  mutate(moe_pct = moe/estimate*100) %>%
+  mutate(pct_black = (estimate/summary_est)*100)
+
+# Get Median household income by zcta
+zcta_median_household_income <- get_acs(geography = "zcta", variables = "B19013_001", geometry = FALSE) %>%
+  mutate(moe_pct = moe/estimate*100) 
+
+```
+
+
+
+
