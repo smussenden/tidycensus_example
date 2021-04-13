@@ -1,47 +1,150 @@
 ---
-title: "tidycensus_example"
+title: "tidycensus_intro
 author: "Sean Mussenden"
-date: "10/1/2020"
+date: "2/1/2021"
 output: html_document
 ---
 
-# Load packages
-```{r}
-# https://walker-data.com/tidycensus/
-library(tidycensus)
-library(tidyverse)
-# Get an api key
-# https://api.census.gov/data/key_signup.html
+### Tidycensus and the U.S. Census API
 
-# Define API Key
+The U.S. Census bureau provides millions of data points about small and large parts of the U.S. that we can use in our analysis.  It has great data on poverty, race, income, education, jobs and other demographic features on areas as small as a few city blocks and large as the country as a whole. 
+
+I'm going to show you how you can get access to this data through a handy R package called Tidycensus that allows us to download data directly from the Census servers using something called an API. 
+
+## Load libraries
+
+First, load the libraries you'll need for this lab.  We're loading the tidyverse and tidycensus. 
+
+For more on Tidycensus, visit [this page](https://walker-data.com/tidycensus/). 
+
+You'll also need to sign up for a free API key, a password of sorts, to get access to the census API. Sign up for you own [here](https://api.census.gov/data/key_signup.html)
+
+
+```{r}
+# Tidyverse
+library(tidyverse)
+
+# Load Tidycensus after installing if necessary
+#install.packages(tidycensus)
+library(tidycensus)
+
+# Store census API key
+# Use mine for now, in the future use yours
 census_api_key("549950d36c22ff16455fe196bbbd01d63cfbe6cf")
 
 ```
 
-# Get available data
-```{r}
-# https://walker-data.com/tidycensus/reference/index.html
+## Get data 
 
+Now, let's pull down a table with the median household income for each county in Maryland in 2018. And let's store it as an object called county_median_household_income. 
+First, run the code, then we'll examine what's happening. 
+
+```{r}
+md_county_median_household_income <- get_acs(geography = "county", state="MD",
+              variables="B19013_001", year=2018, geometry = FALSE )
+
+md_county_median_household_income
+
+```
+
+We get a table with 5 columns: 
+
+* GEOID (a FIPS code, or unique ID for each county)
+* NAME (County and state)
+* variable (the name of the bit of information we're pulling from the census; B109013_001 is the shorthand for median household income)
+* estimate (the median household income estimate for each county)
+* and moe (Margin of Error)
+
+This data comes from a census product called the American Community Survey or acs, so the values are estimates, with a margin of error.  The real value could be higher or lower than the estimate. 
+
+To get this information, we used the [get_acs function](https://walkerke.github.io/tidycensus/reference/get_acs.html).  
+
+And we fed it some arguments:
+
+* geography - we chose county, but we could have gone bigger (states, or national) or smaller (census tract)
+* state = we chose to just get Maryland, but we could also get multiple states at once
+* variables - we chose B19013_001 for median household income, but we could have picked B00001_001 for a total population count, or B06012_002 for total population living below the poverty level. 
+* year - we chose 2018, but we could have picked any year between 2009 and 2019. 
+* geometry - we chose false.  We only need to pick true if we're going to later use it for mapping. 
+
+How do we know which variables are available? 
+
+The census has thousands, and it can be a bit confusing.  The tidycensus has a function called load_variables which pulls up a table of available variables for each census product. 
+
+This function pulls all the avaiable variables for 2012 from the acs, with data from the previous 5 years averaged into a single estimate.  Here's a [good discussion of what that means](https://www.census.gov/data/developers/data-sets/acs-5year.html)
+
+```{r}
 acs_variables <- load_variables(2018, "acs5")
-
 ```
 
-# Get census data
+I'll review some of the variables we can pull with you. 
+
+# Get a data table with demographic information
+
+The following code will pull demographic information at various levels of geography for all states. We can use this with our lottery   
 
 ```{r}
-# Get the total Black population for each ZCTA 
-# Get acs https://walker-data.com/tidycensus/reference/get_acs.html
+## Get list of states (Exclude non-states, except DC)
+states <- fips_codes %>%
+  select(state) %>%
+  distinct() %>%
+  head(51) %>%
+  as_vector() 
 
-zcta_black_pop <- get_acs(geography = "zcta", variables = "B02001_003", summary_var = "B02001_001", geometry = FALSE) %>%
-  mutate(moe_pct = moe/estimate*100) %>%
-  mutate(pct_black = (estimate/summary_est)*100)
+# Get ZCTA data for all states   
+zcta_stats <- get_acs(geography = "zcta", variables = c( "B01001_001","B02001_002","B02001_003","B02001_004","B03001_003","B06012_002","B19013_001"), year = 2018) %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from=variable, values_from=estimate) %>%
+  rename(
+    total_pop = B01001_001,
+    white_pop = B02001_002,
+    black_pop = B02001_003,
+    native_pop = B02001_004,
+    hispanic_pop = B03001_003,
+    poverty_pop = B06012_002,
+    median_income = B19013_001
+  ) %>%
+  mutate(pct_white = round(white_pop/total_pop,2)*100,
+         pct_nonwhite = 100-round(white_pop/total_pop,2)*100,
+         pct_black = round(black_pop/total_pop,2)*100,
+         pct_native = round(native_pop/total_pop,2)*100,
+         pct_hispanic = round(hispanic_pop/total_pop,2)*100,
+         pct_poverty = round(poverty_pop/total_pop,2)*100
+         ) %>%
+  clean_names() %>%
+  mutate(fips_code_state = str_sub(geoid,start=1L,end=2L),
+         geoid=str_sub(geoid, start=3L,end=7L)) %>%
+  select(fips_code_state,geoid,-ends_with("pop"), starts_with("pct"),median_income) 
 
-# Get Median household income by zcta
-zcta_median_household_income <- get_acs(geography = "zcta", variables = "B19013_001", geometry = FALSE) %>%
-  mutate(moe_pct = moe/estimate*100) 
+  
+# Get census tract data for all states
+census_tract_stats <- get_acs(geography = "tract", variables = c( "B01001_001","B02001_002","B02001_003","B02001_004","B03001_003","B06012_002","B19013_001"), state=states,year = 2018) %>%
+  select(GEOID, variable, estimate) %>%
+  pivot_wider(names_from=variable, values_from=estimate) %>%
+  rename(
+    total_pop = B01001_001,
+    white_pop = B02001_002,
+    black_pop = B02001_003,
+    native_pop = B02001_004,
+    hispanic_pop = B03001_003,
+    poverty_pop = B06012_002,
+    median_income = B19013_001
+  ) %>%
+  mutate(pct_white = round(white_pop/total_pop,2)*100,
+         pct_nonwhite = 100-round(white_pop/total_pop,2)*100,
+         pct_black = round(black_pop/total_pop,2)*100,
+         pct_native = round(native_pop/total_pop,2)*100,
+         pct_hispanic = round(hispanic_pop/total_pop,2)*100,
+         pct_poverty = round(poverty_pop/total_pop,2)*100
+         ) %>%
+  clean_names() %>%
+  select(geoid,-ends_with("pop"), starts_with("pct"),median_income)
+
 
 ```
 
+```{r}
+# To figure out census tract for your stores, and we can review this next week, we can use a geocoding service like https://slu-opengis.github.io/censusxy/reference/index.html
 
 
-
+```
